@@ -136,12 +136,12 @@ func (upckr *unpacker) unpackMapNormal(count int) (map[interface{}]interface{}, 
 
 	for i := 0; i < count; i++ {
 		key, err := upckr.unpackObject(true)
-		if err != nil {
+		if err != nil && err != errSkipHeader {
 			return nil, err
 		}
 
 		val, err := upckr.unpackObject(false)
-		if err != nil {
+		if err != nil && err != errSkipHeader {
 			return nil, err
 		}
 		out[key] = val
