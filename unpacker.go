@@ -144,7 +144,10 @@ func (upckr *unpacker) unpackMapNormal(count int) (map[interface{}]interface{}, 
 		if err != nil && err != errSkipHeader {
 			return nil, err
 		}
-		out[key] = val
+
+		if key != nil {
+			out[key] = val
+		}
 	}
 	return out, nil
 }
