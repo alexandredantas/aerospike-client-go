@@ -128,9 +128,6 @@ func (upckr *unpacker) unpackMap(count int) (interface{}, Error) {
 		return make(map[interface{}]interface{}), nil
 	}
 
-	if upckr.isMapCDT() {
-		return upckr.unpackCDTMap(count)
-	}
 	return upckr.unpackMapNormal(count)
 }
 
