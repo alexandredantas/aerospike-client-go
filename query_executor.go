@@ -30,6 +30,7 @@ func (clnt *Client) queryPartitions(policy *QueryPolicy, tracker *partitionTrack
 		if err != nil {
 			errs = chainErrors(err, errs)
 			recordset.sendError(errs)
+			tracker.partitionError()
 			return
 		}
 
@@ -47,11 +48,12 @@ func (clnt *Client) queryPartitions(policy *QueryPolicy, tracker *partitionTrack
 			errs = chainErrors(weg.wait(), errs)
 		}
 
-		done, err := tracker.isComplete(clnt.Cluster(), &policy.BasePolicy)
+		done, err := tracker.isClusterComplete(clnt.Cluster(), &policy.BasePolicy)
 		if !recordset.IsActive() || done || err != nil {
 			errs = chainErrors(err, errs)
 			// Query is complete.
 			if errs != nil {
+				tracker.partitionError()
 				recordset.sendError(errs)
 			}
 			return

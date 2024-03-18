@@ -33,6 +33,7 @@ func (clnt *Client) queryPartitionObjects(policy *QueryPolicy, tracker *partitio
 		rs.resetTaskID()
 		list, err := tracker.assignPartitionsToNodes(clnt.Cluster(), statement.Namespace)
 		if err != nil {
+			tracker.partitionError()
 			return err
 		}
 
@@ -53,12 +54,14 @@ func (clnt *Client) queryPartitionObjects(policy *QueryPolicy, tracker *partitio
 		if rs.IsActive() {
 			for _, nodePartition := range list {
 				if err := sem.Acquire(ctx, 1); err != nil {
+					tracker.partitionError()
 					logger.Logger.Error("Constraint Semaphore failed for Query: %s", err.Error())
 				}
 				go func(nodePartition *nodePartitions) {
 					defer sem.Release(1)
 					defer wg.Done()
 					if err := clnt.queryNodePartitionObjects(policy, rs, tracker, nodePartition, statement); err != nil {
+						tracker.partitionError()
 						logger.Logger.Debug("Error while Executing query for node %s: %s", nodePartition.node.String(), err.Error())
 					}
 				}(nodePartition)
@@ -67,8 +70,11 @@ func (clnt *Client) queryPartitionObjects(policy *QueryPolicy, tracker *partitio
 			wg.Wait()
 		}
 
-		done, err := tracker.isComplete(clnt.Cluster(), &policy.BasePolicy)
+		done, err := tracker.isClusterComplete(clnt.Cluster(), &policy.BasePolicy)
 		if !rs.IsActive() || done || err != nil {
+			if err != nil {
+				tracker.partitionError()
+			}
 			// Query is complete.
 			return err
 		}

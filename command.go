@@ -755,9 +755,15 @@ func (cmd *baseCommand) setBatchOperate(policy *BatchPolicy, keys []*Key, batch 
 	cmd.begin()
 	fieldCount := 1
 	predSize := 0
-	if policy.FilterExpression != nil {
+
+	exp := policy.FilterExpression
+	if attr.filterExp != nil {
+		exp = attr.filterExp
+	}
+
+	if exp != nil {
 		var err Error
-		predSize, err = cmd.estimateExpressionSize(policy.FilterExpression)
+		predSize, err = cmd.estimateExpressionSize(exp)
 		if err != nil {
 			return err
 		}
@@ -826,7 +832,7 @@ func (cmd *baseCommand) setBatchOperate(policy *BatchPolicy, keys []*Key, batch 
 	cmd.writeBatchHeader(policy, fieldCount)
 
 	if policy.FilterExpression != nil {
-		if err := cmd.writeFilterExpression(policy.FilterExpression, predSize); err != nil {
+		if err := cmd.writeFilterExpression(exp, predSize); err != nil {
 			return err
 		}
 	}
@@ -1528,6 +1534,11 @@ func (cmd *baseCommand) setQuery(policy *QueryPolicy, wpolicy *WritePolicy, stat
 	predSize := 0
 	var ctxSize int
 
+	filterExpression := policy.FilterExpression
+	if filterExpression == nil && wpolicy != nil {
+		filterExpression = wpolicy.FilterExpression
+	}
+
 	isNew := false
 	if cmd.node != nil {
 		isNew = cmd.node.cluster.supportsPartitionQuery.Get()
@@ -1652,9 +1663,9 @@ func (cmd *baseCommand) setQuery(policy *QueryPolicy, wpolicy *WritePolicy, stat
 		fieldCount++
 	}
 
-	if policy.FilterExpression != nil {
+	if filterExpression != nil {
 		var err Error
-		predSize, err = cmd.estimateExpressionSize(policy.FilterExpression)
+		predSize, err = cmd.estimateExpressionSize(filterExpression)
 		if err != nil {
 			return err
 		}
@@ -1684,6 +1695,8 @@ func (cmd *baseCommand) setQuery(policy *QueryPolicy, wpolicy *WritePolicy, stat
 		fieldCount += 4
 	}
 
+	operationCount := 0
+
 	// Operations (used in query execute) and bin names (used in scan/query) are mutually exclusive.
 	if len(operations) > 0 {
 		if !background {
@@ -1698,23 +1711,18 @@ func (cmd *baseCommand) setQuery(policy *QueryPolicy, wpolicy *WritePolicy, stat
 				return err
 			}
 		}
+		operationCount = len(operations)
 	} else if len(statement.BinNames) > 0 && (isNew || statement.Filter == nil) {
 		for _, binName := range statement.BinNames {
 			cmd.estimateOperationSizeForBinName(binName)
 		}
+		operationCount = len(statement.BinNames)
 	}
 
 	//////////////////////////////////////////////////////////////////////////
 
 	if err := cmd.sizeBuffer(false); err != nil {
 		return err
-	}
-
-	operationCount := 0
-	if len(operations) > 0 {
-		operationCount = len(operations)
-	} else if statement.Filter == nil && len(statement.BinNames) > 0 {
-		operationCount = len(statement.BinNames)
 	}
 
 	if background {
@@ -1828,8 +1836,8 @@ func (cmd *baseCommand) setQuery(policy *QueryPolicy, wpolicy *WritePolicy, stat
 		cmd.writeFieldInt32(int32(policy.RecordsPerSecond), RECORDS_PER_SECOND)
 	}
 
-	if policy.FilterExpression != nil {
-		if err := cmd.writeFilterExpression(policy.FilterExpression, predSize); err != nil {
+	if filterExpression != nil {
+		if err := cmd.writeFilterExpression(filterExpression, predSize); err != nil {
 			return err
 		}
 	}
@@ -1856,7 +1864,7 @@ func (cmd *baseCommand) setQuery(policy *QueryPolicy, wpolicy *WritePolicy, stat
 				return err
 			}
 		}
-	} else if len(statement.BinNames) > 0 && statement.Filter == nil {
+	} else if len(statement.BinNames) > 0 && (isNew || statement.Filter == nil) {
 		// scan binNames come last
 		for _, binName := range statement.BinNames {
 			cmd.writeOperationForBinName(binName, _READ)
@@ -2089,7 +2097,7 @@ func (cmd *baseCommand) writeHeaderReadWrite(policy *WritePolicy, readAttr, writ
 	cmd.dataOffset = 14
 	cmd.WriteUint32(generation)
 	cmd.WriteUint32(policy.Expiration)
-	cmd.WriteInt32(0) // TODO: Server timeout
+	cmd.WriteInt32(0) // timeout
 	cmd.WriteInt16(int16(fieldCount))
 	cmd.WriteInt16(int16(operationCount))
 	cmd.dataOffset = int(_MSG_TOTAL_HEADER_SIZE)
@@ -2097,7 +2105,6 @@ func (cmd *baseCommand) writeHeaderReadWrite(policy *WritePolicy, readAttr, writ
 
 // Header write for read commands.
 func (cmd *baseCommand) writeHeaderRead(policy *BasePolicy, readAttr, infoAttr, fieldCount, operationCount int) {
-	// TODO: timeout argument
 	switch policy.ReadModeSC {
 	case ReadModeSCSession:
 	case ReadModeSCLinearize:
@@ -2126,8 +2133,7 @@ func (cmd *baseCommand) writeHeaderRead(policy *BasePolicy, readAttr, infoAttr, 
 		cmd.dataBuffer[i] = 0
 	}
 	cmd.dataOffset = 22
-	// cmd.WriteInt32(int32(timeout))
-	cmd.WriteInt32(0)
+	cmd.WriteInt32(0) // timeout
 	cmd.WriteInt16(int16(fieldCount))
 	cmd.WriteInt16(int16(operationCount))
 	cmd.dataOffset = int(_MSG_TOTAL_HEADER_SIZE)

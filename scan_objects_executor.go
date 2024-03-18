@@ -33,6 +33,7 @@ func (clnt *Client) scanPartitionObjects(policy *ScanPolicy, tracker *partitionT
 		rs.resetTaskID()
 		list, err := tracker.assignPartitionsToNodes(clnt.Cluster(), namespace)
 		if err != nil {
+			tracker.partitionError()
 			return err
 		}
 
@@ -58,6 +59,7 @@ func (clnt *Client) scanPartitionObjects(policy *ScanPolicy, tracker *partitionT
 				defer sem.Release(1)
 				defer wg.Done()
 				if err := clnt.scanNodePartitionObjects(policy, rs, tracker, nodePartition, namespace, setName, binNames...); err != nil {
+					tracker.partitionError()
 					logger.Logger.Debug("Error while Executing scan for node %s: %s", nodePartition.node.String(), err.Error())
 				}
 			}(nodePartition)
@@ -65,8 +67,11 @@ func (clnt *Client) scanPartitionObjects(policy *ScanPolicy, tracker *partitionT
 
 		wg.Wait()
 
-		done, err := tracker.isComplete(clnt.Cluster(), &policy.BasePolicy)
+		done, err := tracker.isClusterComplete(clnt.Cluster(), &policy.BasePolicy)
 		if done || err != nil {
+			if err != nil {
+				tracker.partitionError()
+			}
 			// Scan is complete.
 			return err
 		}
